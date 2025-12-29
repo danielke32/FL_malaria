@@ -1,0 +1,29 @@
+# Python Version: 3.10
+
+# Federated Learning Framework
+flwr==1.24.0
+
+# Deep Learning
+torch==2.9.0
+tensorflow==2.19.1
+
+# Machine Learning & Data Processing
+scikit-learn==1.7.2
+pandas==2.3.3
+numpy==2.1.3
+scipy==1.15.3
+
+# Class Imbalance Handling
+imbalanced-learn==0.14.0
+
+# Statistical Analysis
+statsmodels==0.14.5
+
+# Visualization
+matplotlib==3.10.6
+seaborn==0.13.2
+
+# Utilities
+joblib==1.5.2
+tqdm==4.67.1
+PyYAML==6.0.3
