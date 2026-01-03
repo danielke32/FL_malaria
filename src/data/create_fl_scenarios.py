@@ -1,20 +1,4 @@
-"""
-======================================================================
-FEDERATED LEARNING SCENARIO CREATION (SAVES PER-CLIENT FILES)
-======================================================================
-Takes the raw training data and creates 3 scenarios with per-client files:
-
-S1 (IID): Equal split across 5 clients + local SMOTE
-S2 (Non-IID): Unequal split by region + local SMOTE  
-S3 (Data Quality): S2 + inject 5-20% missingness
-
-Output structure:
-  data/fl_scenarios/
-    ├── s1_iid/client_0.csv, client_1.csv, ..., client_4.csv
-    ├── s2_noniid/client_0.csv, client_1.csv, ..., client_4.csv
-    └── s3_quality/client_0.csv, client_1.csv, ..., client_4.csv
-======================================================================
-"""
+# 🇬🇭 STAGE 3a: Creation of Scenarios S1, S2 and S3
 
 import pandas as pd
 import numpy as np
@@ -83,31 +67,26 @@ print("  - S2 (Non-IID): Region-based unequal split + local SMOTE")
 print("  - S3 (Quality): S2 + missing data injection")
 print()
 
-# ======================================================================
+
 # LOAD DATA
-# ======================================================================
 print("-" * 70)
 print("Loading training data...")
 print("-" * 70)
 
 train_raw_file = CLEANED_DIR / "train_raw.csv"
 if not train_raw_file.exists():
-    print(f"❌ ERROR: File not found: {train_raw_file}")
+    print(f" ERROR: File not found: {train_raw_file}")
     print("   Please ensure you have the preprocessed data.")
     exit(1)
 
 train_raw = pd.read_csv(train_raw_file)
-print(f"  ✅ Loaded {len(train_raw):,} samples")
+print(f"     Loaded {len(train_raw):,} samples")
 print(f"     Prevalence: {train_raw['malaria_positive'].mean():.2%}")
 print(f"     Columns: {train_raw.columns.tolist()}")
 
-# ======================================================================
 # HELPER FUNCTIONS
-# ======================================================================
-
 def apply_local_smote(X_local: pd.DataFrame, y_local: pd.Series, 
                       target_size: int, client_id: int, seed: int = 42) -> pd.DataFrame:
-    """Apply SMOTE to augment client data to target size."""
     
     # Identify categorical features
     categorical_features = []
@@ -155,7 +134,7 @@ def apply_local_smote(X_local: pd.DataFrame, y_local: pd.Series,
             X_aug[col_name] = X_aug[col_name].round().astype(int)
         
     except Exception as e:
-        print(f"      ⚠️  SMOTE failed: {e}")
+        print(f"          SMOTE failed: {e}")
         print(f"          Using original data")
         X_aug, y_aug = X_local.astype(float), y_local.astype(int)
     
@@ -193,7 +172,6 @@ def inject_missing_data(df: pd.DataFrame, missing_rate: float, seed_offset: int 
 
 
 def compute_heterogeneity_metrics(client_dfs: List[pd.DataFrame], scenario_name: str) -> Dict:
-    """Compute heterogeneity metrics from client DataFrames."""
     
     # Combine all clients to get global stats
     all_data = pd.concat(client_dfs, ignore_index=True)
@@ -261,17 +239,15 @@ def save_client_files(client_dfs: List[pd.DataFrame], scenario_dir: Path, scenar
         print(f"    Client {client_id}: {len(df):,} samples, "
               f"{prev:.1%} positive, {missing_pct:.1f}% missing → {output_file.name}")
     
-    print(f"  ✅ Saved {len(client_dfs)} client files to {scenario_dir}")
+    print(f"   Saved {len(client_dfs)} client files to {scenario_dir}")
 
 
 def print_regional_prevalence_table(scenarios_data: Dict[str, List[pd.DataFrame]]):
-    """Print a formatted table showing regional malaria prevalence across scenarios."""
     
     print("\n" + "=" * 90)
     print("REGIONAL MALARIA PREVALENCE ACROSS SCENARIOS")
     print("=" * 90)
     
-    # Header
     print(f"\n{'Region/Client':<20} {'Samples':<12} {'S1 (IID)':<15} {'S2 (Non-IID)':<15} {'S3 (Quality)':<15}")
     print("-" * 90)
     
@@ -326,9 +302,7 @@ def print_regional_prevalence_table(scenarios_data: Dict[str, List[pd.DataFrame]
     print("=" * 90)
 
 
-# ======================================================================
 # SCENARIO 1: IID (Equal Split)
-# ======================================================================
 print("\n" + "-" * 70)
 print("S1: IID Baseline (Equal Random Split)")
 print("-" * 70)
@@ -367,9 +341,8 @@ save_client_files(s1_client_dfs, s1_dir, "s1_iid")
 # Compute heterogeneity
 hetero_s1 = compute_heterogeneity_metrics(s1_client_dfs, "s1_iid")
 
-# ======================================================================
+
 # SCENARIO 2: NON-IID (Regional Heterogeneity)
-# ======================================================================
 print("\n" + "-" * 70)
 print("S2: Non-IID (Regional Heterogeneity)")
 print("-" * 70)
@@ -389,7 +362,7 @@ for client_id in range(N_CLIENTS):
     
     # Sample with replacement if needed
     if raw_needed > available:
-        print(f"  ⚠️  Client {client_id} ({CLIENT_LABELS[client_id]}): "
+        print(f"    Client {client_id} ({CLIENT_LABELS[client_id]}): "
               f"Need {raw_needed}, have {available} - sampling with replacement")
         sampled_data = region_data.sample(n=raw_needed, replace=True, random_state=SEED + client_id)
     else:
@@ -427,9 +400,8 @@ save_client_files(s2_client_dfs, s2_dir, "s2_noniid")
 # Compute heterogeneity
 hetero_s2 = compute_heterogeneity_metrics(s2_client_dfs, "s2_noniid")
 
-# ======================================================================
+
 # SCENARIO 3: DATA QUALITY (S2 + Missingness)
-# ======================================================================
 print("\n" + "-" * 70)
 print("S3: Data Quality (S2 + Missing Data)")
 print("-" * 70)
@@ -464,9 +436,8 @@ save_client_files(s3_client_dfs, s3_dir, "s3_quality")
 # Compute heterogeneity
 hetero_s3 = compute_heterogeneity_metrics(s3_client_dfs, "s3_quality")
 
-# ======================================================================
+
 # PRINT REGIONAL PREVALENCE TABLE
-# ======================================================================
 scenarios_data = {
     's1': s1_client_dfs,
     's2': s2_client_dfs,
@@ -475,9 +446,8 @@ scenarios_data = {
 
 print_regional_prevalence_table(scenarios_data)
 
-# ======================================================================
+
 # SAVE METRICS
-# ======================================================================
 heterogeneity_metrics = {
     's1_iid': hetero_s1,
     's2_noniid': hetero_s2,
@@ -518,11 +488,10 @@ output_data = {
 with open(SCENARIOS_DIR / 'heterogeneity_metrics.json', 'w') as f:
     json.dump(output_data, f, indent=2)
 
-# ======================================================================
+
 # SUMMARY
-# ======================================================================
 print("\n" + "=" * 70)
-print("✅ SCENARIO CREATION COMPLETE")
+print(" SCENARIO CREATION COMPLETE")
 print("=" * 70)
 
 print("\n┌──────────────────────────────────────────────────────────┐")
@@ -533,9 +502,9 @@ print(f"│ S2 Total: {total_s2:,} samples ({len(s2_client_dfs)} clients)       
 print(f"│ S3 Total: {total_s3:,} samples ({len(s3_client_dfs)} clients)                   │")
 
 if abs(total_s1 - TARGET_TOTAL_PER_SCENARIO) < 100:
-    print(f"│ ✅ S1 close to target ({TARGET_TOTAL_PER_SCENARIO:,})                          │")
+    print(f"│  S1 close to target ({TARGET_TOTAL_PER_SCENARIO:,})                          │")
 else:
-    print(f"│ ⚠️  S1 differs from target ({TARGET_TOTAL_PER_SCENARIO:,})                     │")
+    print(f"│   S1 differs from target ({TARGET_TOTAL_PER_SCENARIO:,})                     │")
 
 print("└──────────────────────────────────────────────────────────┘")
 
@@ -551,7 +520,7 @@ print(f"│ S3 (Quality): CV={hetero_s3['coefficient_variation']:.4f}, "
 print("└──────────────────────────────────────────────────────────┘")
 
 print(f"""
-✅ Files Saved:
+ Files Saved:
 
 data/fl_scenarios/
 ├── s1_iid/
@@ -575,9 +544,9 @@ data/fl_scenarios/
 │   ├── client_3.csv ({len(s3_client_dfs[3]):,} samples)
 │   └── client_4.csv ({len(s3_client_dfs[4]):,} samples)
 │
-└── heterogeneity_metrics.json (now includes regional prevalence data)
+└── heterogeneity_metrics.json
 
-🚀 Ready to Train!
+ Next Stage: 3b
   python train_federated.py --experiment baseline
-  python train_federated.py --experiment grid_search_s3
+  python train_federated.py --experiment grid_search
 """)

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 ======================================================================
 🇬🇭 GHANA MALARIA FEDERATED LEARNING - COMPLETE PIPELINE
@@ -6,7 +5,7 @@
 MSc Thesis: Performance Evaluation of Federated Learning Algorithms
             for Privacy-Preserving Malaria Symptom Assessment
 
-This pipeline orchestrates the complete workflow:
+This pipeline runs the complete workflow:
   Stage 1: Data Extraction     (src/data/data_extraction.py)
   Stage 2: Data Preprocessing  (src/data/data_preprocessing.py)
   Stage 3: FL Scenario Creation (src/data/create_fl_scenarios.py)
@@ -32,7 +31,7 @@ Usage (from project root):
   python src/pipeline/run_complete_pipeline.py --skip-extraction  # Skip data extraction if already done
   python src/pipeline/run_complete_pipeline.py --stages 1,2,3     # Run specific stages only
 
-Author: Daniel
+Author: Daniel Kwasi Kovor
 Date: December 2025
 ======================================================================
 """
@@ -49,9 +48,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import traceback
 
-# ======================================================================
-# WINDOWS ENCODING FIX
-# ======================================================================
 # Ensure proper UTF-8 handling on Windows
 if sys.platform == 'win32':
     # Set console to UTF-8 mode
@@ -66,24 +62,21 @@ if sys.platform == 'win32':
     os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 
-# ======================================================================
-# CONFIGURATION
-# ======================================================================
-
+# --- Configuration ---
 class PipelineConfig:
     """Pipeline configuration."""
     
-    # Get project root (two levels up from src/pipeline/)
+    # Get directory
     PIPELINE_DIR = Path(__file__).parent.resolve()
     SRC_DIR = PIPELINE_DIR.parent
     PROJECT_ROOT = SRC_DIR.parent
     
-    # Directories (relative to project root)
+    # Directories for logs, results, data
     LOGS_DIR = PROJECT_ROOT / "logs"
     RESULTS_DIR = PROJECT_ROOT / "results"
     DATA_DIR = PROJECT_ROOT / "data"
     
-    # Script files (relative to project root)
+    # Work flow script files 
     SCRIPTS = {
         1: SRC_DIR / "data" / "data_extraction.py",
         2: SRC_DIR / "data" / "data_preprocessing.py",
@@ -113,7 +106,7 @@ class PipelineConfig:
         6: "Generate publication-ready figures, tables, and statistical analysis"
     }
     
-    # Expected outputs per stage (for validation, relative to project root)
+    # Outputs for the various stage (for validation, relative to project root)
     EXPECTED_OUTPUTS = {
         1: ["data/merged/ghana_malaria_merged.csv"],
         2: ["data/cleaned/train_raw.csv", "data/cleaned/train_centralized.csv", 
@@ -167,10 +160,7 @@ class PipelineConfig:
         return "unknown"
 
 
-# ======================================================================
-# LOGGING SETUP
-# ======================================================================
-
+# Logging Setup
 class PipelineLogger:
     """Handles logging for the pipeline."""
     
@@ -318,10 +308,8 @@ class PipelineLogger:
         self.info(f"📊 Timing log saved: {self.timing_log}")
 
 
-# ======================================================================
-# PIPELINE RUNNER
-# ======================================================================
 
+# Pipeline Runner
 class PipelineRunner:
     """Main pipeline execution class."""
     
@@ -383,15 +371,15 @@ class PipelineRunner:
                 
                 # Validate outputs
                 if not self._validate_outputs(stage):
-                    self.logger.warning(f"⚠️  Some expected outputs missing for stage {stage}")
+                    self.logger.warning(f"  Some expected outputs missing for stage {stage}")
         
         except KeyboardInterrupt:
-            self.logger.error("\n⚠️  Pipeline interrupted by user")
+            self.logger.error("\n  Pipeline interrupted by user")
             overall_success = False
             error_message = "Interrupted by user"
         
         except Exception as e:
-            self.logger.error(f"\n❌ Pipeline error: {str(e)}")
+            self.logger.error(f"\n Pipeline error: {str(e)}")
             self.logger.debug(traceback.format_exc())
             overall_success = False
             error_message = str(e)
@@ -433,7 +421,7 @@ class PipelineRunner:
             stage_log = PipelineConfig.LOGS_DIR / f"stage_{stage}_{name.lower().replace(' ', '_')}.log"
             
             with open(stage_log, 'w', encoding='utf-8', errors='replace') as log_file:
-                # Use encoding with error handling for Windows compatibility
+                # Using encoding with error handling for Windows compatibility
                 process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
@@ -535,11 +523,11 @@ class PipelineRunner:
         self.logger.info("╚" + "═" * 68 + "╝")
         self.logger.info("")
         
-        self.logger.info(f"📂 Project Root: {PipelineConfig.PROJECT_ROOT}")
+        self.logger.info(f" Project Root: {PipelineConfig.PROJECT_ROOT}")
         self.logger.info("")
         
         # Print stages to run
-        self.logger.info("📋 Stages to execute:")
+        self.logger.info(" Stages to execute:")
         for stage in self.stages:
             name = PipelineConfig.STAGE_NAMES.get(stage, f"Stage {stage}")
             script = PipelineConfig.get_script_display_path(stage)
@@ -553,7 +541,7 @@ class PipelineRunner:
         self.logger.info("║" + " PIPELINE SUMMARY ".center(68, "═") + "║")
         self.logger.info("╠" + "═" * 68 + "╣")
         
-        status = "✅ COMPLETED SUCCESSFULLY" if success else "❌ FAILED"
+        status = " COMPLETED SUCCESSFULLY" if success else " FAILED"
         self.logger.info("║" + f"   Status: {status}".ljust(67) + "║")
         self.logger.info("║" + f"   Total Duration: {self.logger._format_duration(total_duration)}".ljust(67) + "║")
         self.logger.info("║" + f"   Experiment: {self.experiment}".ljust(67) + "║")
@@ -563,23 +551,20 @@ class PipelineRunner:
         self.logger.info("║" + " Stage Timing:".ljust(67) + "║")
         
         for timing in self.logger.timing_data:
-            stage_status = "✅" if timing['success'] else "❌"
+            stage_status = "" if timing['success'] else "❌"
             line = f"   {stage_status} Stage {timing['stage']}: {timing['duration_formatted']}"
             self.logger.info("║" + line.ljust(67) + "║")
         
         self.logger.info("╠" + "═" * 68 + "╣")
         self.logger.info("║" + " Output Locations:".ljust(67) + "║")
-        self.logger.info("║" + f"   📁 Logs:    {PipelineConfig.LOGS_DIR}/".ljust(67) + "║")
-        self.logger.info("║" + f"   📁 Results: {PipelineConfig.RESULTS_DIR}/".ljust(67) + "║")
-        self.logger.info("║" + f"   📁 Data:    {PipelineConfig.DATA_DIR}/".ljust(67) + "║")
+        self.logger.info("║" + f"    Logs:    {PipelineConfig.LOGS_DIR}/".ljust(67) + "║")
+        self.logger.info("║" + f"    Results: {PipelineConfig.RESULTS_DIR}/".ljust(67) + "║")
+        self.logger.info("║" + f"    Data:    {PipelineConfig.DATA_DIR}/".ljust(67) + "║")
         
         self.logger.info("╚" + "═" * 68 + "╝")
 
 
-# ======================================================================
 # COMMAND LINE INTERFACE
-# ======================================================================
-
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
@@ -655,8 +640,8 @@ def list_stages():
         print(f"    Script: {script}")
         print(f"    Description: {desc}")
     print("\n" + "-" * 70)
-    print(f"\n📂 Project Root: {PipelineConfig.PROJECT_ROOT}")
-    print(f"📁 Logs Directory: {PipelineConfig.LOGS_DIR}")
+    print(f"\n Project Root: {PipelineConfig.PROJECT_ROOT}")
+    print(f" Logs Directory: {PipelineConfig.LOGS_DIR}")
 
 
 # ======================================================================
@@ -680,11 +665,11 @@ def main():
             # Validate stage numbers
             for s in stages:
                 if s not in PipelineConfig.STAGE_NAMES:
-                    print(f"❌ Invalid stage number: {s}")
+                    print(f" Invalid stage number: {s}")
                     print(f"   Valid stages: {list(PipelineConfig.STAGE_NAMES.keys())}")
                     return 1
         except ValueError:
-            print(f"❌ Invalid stages format: {args.stages}")
+            print(f" Invalid stages format: {args.stages}")
             print("   Use comma-separated numbers, e.g., '1,2,3' or '4,5,6'")
             return 1
     

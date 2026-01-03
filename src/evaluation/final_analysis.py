@@ -90,8 +90,27 @@ class Config:
     ALPHA = 0.05
     CONFIDENCE_LEVEL = 0.95
     
-    # Ablation study mu values
-    MU_VALUES = [0.0, 0.001, 0.01, 0.1, 1.0]
+    # Ablation study mu values (actual values from grid search)
+    MU_VALUES = [0.0, 0.01, 0.1, 0.5, 1.0]
+    
+    # ==========================================================================
+    # OPTIMAL MU VALUES FOR FAIR COMPARISON (from ablation study)
+    # ==========================================================================
+    # FedAvg is always mu=0.0
+    # FedProx: Using FIXED mu=0.5 across all scenarios for consistent comparison
+    #   - This allows direct cross-scenario comparison
+    #   - S1 (IID): mu=0.5 (note: mu=0.0 is optimal, so FedProx will underperform)
+    #   - S2 (Regional Heterogeneity): mu=0.5 (optimal)
+    #   - S3 (Quality Variation): mu=0.5 (optimal)
+    # ==========================================================================
+    OPTIMAL_FEDPROX_MU = {
+        's1_iid': 0.5,       # Fixed mu=0.5 for consistent comparison
+        's2_noniid': 0.5,    # Optimal from ablation study
+        's3_quality': 0.5    # Optimal from ablation study
+    }
+    
+    # Use optimal mu for fair comparison (set to False to use all mu>0 as before)
+    USE_OPTIMAL_MU_COMPARISON = True
     
     @classmethod
     def create_directories(cls):
@@ -170,7 +189,17 @@ class DataLoader:
         self._organize_results_by_mu()
     
     def _organize_federated_results(self):
-        """Organize federated learning results."""
+        """Organize federated learning results.
+        
+        MODIFIED: Now uses optimal mu values for fair FedAvg vs FedProx comparison.
+        - FedAvg: mu = 0.0 (by definition)
+        - FedProx: mu = optimal value per scenario (from ablation study)
+          - S1 (IID): mu = 0.1 (baseline, since mu=0.0 is optimal)
+          - S2 (Regional): mu = 0.5 (optimal)
+          - S3 (Quality): mu = 0.5 (optimal)
+        
+        This ensures balanced sample sizes (60 vs 60) and meaningful comparison.
+        """
         for config_key, runs in self.raw_data.items():
             # Parse scenario
             scenario = self._parse_scenario(config_key)
@@ -180,8 +209,22 @@ class DataLoader:
             # Parse mu value
             mu_val = self._parse_mu(config_key)
             
-            # Determine algorithm
-            algo = 'fedprox' if mu_val > 0 else 'fedavg'
+            # Determine algorithm based on configuration
+            if Config.USE_OPTIMAL_MU_COMPARISON:
+                # Fair comparison: FedAvg (mu=0) vs FedProx (optimal mu)
+                optimal_mu = Config.OPTIMAL_FEDPROX_MU.get(scenario, 0.1)
+                
+                if mu_val == 0.0:
+                    algo = 'fedavg'
+                elif abs(mu_val - optimal_mu) < 0.001:  # Float comparison tolerance
+                    algo = 'fedprox'
+                else:
+                    # Skip non-optimal mu values for main comparison
+                    # (they're still used in ablation study via results_by_mu)
+                    continue
+            else:
+                # Original behavior: all mu > 0 grouped as FedProx
+                algo = 'fedprox' if mu_val > 0 else 'fedavg'
             
             # Initialize storage
             if scenario not in self.all_results:
@@ -401,6 +444,16 @@ class DataLoader:
     def _print_load_summary(self):
         """Print summary of loaded data."""
         print("\n  Data Summary:")
+        
+        # Show comparison configuration
+        if Config.USE_OPTIMAL_MU_COMPARISON:
+            print("  [FAIR COMPARISON MODE: Using optimal mu values]")
+            print("    - FedAvg: mu = 0.0")
+            for scenario in ['s1_iid', 's2_noniid', 's3_quality']:
+                opt_mu = Config.OPTIMAL_FEDPROX_MU.get(scenario, 0.1)
+                print(f"    - FedProx ({Config.SCENARIO_NAMES.get(scenario, scenario)}): mu = {opt_mu}")
+            print()
+        
         for scenario in self.all_results:
             print(f"    {Config.SCENARIO_NAMES.get(scenario, scenario)}:")
             for algo in self.all_results[scenario]:
@@ -1562,12 +1615,16 @@ class FigureGenerator:
             ax.set_title(f'Performance Comparison ({ylabel})', fontsize=14, fontweight='bold')
             ax.set_xticks(x)
             ax.set_xticklabels([Config.SCENARIO_NAMES[s].split(': ')[1] for s in scenarios])
-            ax.legend(loc='lower right', fontsize=10)
             ax.grid(axis='y', alpha=0.3)
             ax.set_ylim([0.75, 1.0])
-            
+        
+        # Single legend below the figure (outside chart area)
+        handles, labels = axes[0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc='lower center', ncol=4, fontsize=11, 
+                   bbox_to_anchor=(0.5, -0.02), frameon=True, fancybox=True)
         
         plt.tight_layout()
+        plt.subplots_adjust(bottom=0.18)  # Make room for legend below
         self._save_figure('figure_1_performance_comparison')
     
     def figure_2_roc_pr_curves(self):
@@ -2293,13 +2350,7 @@ class FigureGenerator:
         plt.suptitle(f'Error Analysis - {algo_name} on S2 (Regional Heterogeneity)',
                     fontsize=14, fontweight='bold', y=1.02)
         plt.tight_layout()
-        
-        for fmt in ['pdf', 'png']:
-            plt.savefig(Config.FIGURES_DIR / f'figure_9_error_analysis.{fmt}',
-                    dpi=300, bbox_inches='tight', facecolor='white')
-        plt.close()
-        self.figures_created.append('figure_9_error_analysis')
-        print(f"    Saved: figure_9_error_analysis.pdf/png")
+        self._save_figure('figure_9_error_analysis')
 
 
     def _create_placeholder_figure(self, name: str, message: str):
@@ -2311,13 +2362,55 @@ class FigureGenerator:
         self._save_figure(name)
     
     def _save_figure(self, name: str):
-        """Save figure in multiple formats."""
+        """Save figure in multiple formats including black & white print version."""
+        # Save color versions
         for fmt in ['pdf', 'png']:
             filepath = Config.FIGURES_DIR / f'{name}.{fmt}'
             plt.savefig(filepath, dpi=300, bbox_inches='tight', facecolor='white')
+        
+        # Save black and white high-resolution print version (300 DPI)
+        self._save_bw_figure(name)
+        
         plt.close()
         self.figures_created.append(name)
-        print(f"    ✓ Saved: {name}")
+        print(f"    ✓ Saved: {name} (color + B&W print versions)")
+    
+    def _save_bw_figure(self, name: str):
+        """Save black and white high-resolution version for printing (300 DPI)."""
+        import io
+        from PIL import Image
+        
+        # Create print directory if it doesn't exist
+        print_dir = Config.FIGURES_DIR / "print_bw"
+        print_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save current figure to buffer at high resolution
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=300, bbox_inches='tight', facecolor='white')
+        buf.seek(0)
+        
+        # Open with PIL and convert to grayscale
+        img = Image.open(buf)
+        
+        # Convert to grayscale (L mode)
+        img_gray = img.convert('L')
+        
+        # Convert back to RGB for better compatibility with some printers/viewers
+        img_bw = img_gray.convert('RGB')
+        
+        # Save as PNG (lossless, high quality for print)
+        png_path = print_dir / f'{name}_print_bw.png'
+        img_bw.save(png_path, 'PNG', dpi=(300, 300))
+        
+        # Also save as PDF for print (vector where possible, raster content at 300 DPI)
+        pdf_path = print_dir / f'{name}_print_bw.pdf'
+        img_bw.save(pdf_path, 'PDF', resolution=300.0)
+        
+        # Also save as TIFF (preferred format for many publishers)
+        tiff_path = print_dir / f'{name}_print_bw.tiff'
+        img_bw.save(tiff_path, 'TIFF', dpi=(300, 300), compression='tiff_lzw')
+        
+        buf.close()
 
 
 # TABLE GENERATION 
@@ -2891,12 +2984,24 @@ def main():
     print("\n" + "="*70)
     print(" ANALYSIS COMPLETE")
     print("="*70)
-    print(f"\n Output Locations:")
+    
+    # Show comparison configuration
+    if Config.USE_OPTIMAL_MU_COMPARISON:
+        print("\n📊 COMPARISON MODE: Fair (Optimal μ)")
+        print("   FedAvg: μ = 0.0 (60 runs per scenario)")
+        print("   FedProx: μ = optimal per scenario (60 runs each)")
+        print("     - S1 (IID): μ = 0.1 (baseline)")
+        print("     - S2 (Regional): μ = 0.5 (optimal)")
+        print("     - S3 (Quality): μ = 0.5 (optimal)")
+    else:
+        print("\n📊 COMPARISON MODE: All μ > 0 grouped as FedProx")
+    
+    print(f"\n📁 Output Locations:")
     print(f"   Figures: {Config.FIGURES_DIR}/")
     print(f"   Tables:  {Config.TABLES_DIR}/")
     print(f"   Stats:   {output_file}")
     
-    print(f"\n Summary:")
+    print(f"\n📈 Summary:")
     print(f"   - {len(fig_gen.figures_created)} figures generated")
     print(f"   - {len(table_gen.tables_created)} tables generated")
     print(f"   - {len(stats_results)} scenario analyses completed")
