@@ -23,9 +23,6 @@ class Config:
     DATA_DIR = BASE_DIR / "data" / "cleaned"
     RESULTS_DIR = BASE_DIR / "results"
     
-    # Ensure results directory exists
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    
     # Data files
     TRAIN_FILE = DATA_DIR / "train_centralized.csv"
     VAL_FILE = DATA_DIR / "val_set.csv"
@@ -318,6 +315,19 @@ def compute_metrics(y_true, y_pred_class, y_pred_proba, train_time, model_name, 
 
 def main():
     """Main training pipeline."""
+    # Create output directory here (not at class definition time)
+    Config.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Validate input files exist before doing anything else
+    for label, fpath in [("Train", Config.TRAIN_FILE),
+                          ("Val",   Config.VAL_FILE),
+                          ("Test",  Config.TEST_FILE)]:
+        if not fpath.exists():
+            raise FileNotFoundError(
+                f"{label} file not found: {fpath}\n"
+                f"Run data_preprocessing.py first to generate the cleaned data files."
+            )
+
     print("="*80)
     print("CENTRALIZED TRAINING WITH AUC-PR (MATCHES FEDERATED LEARNING)")
     print("="*80)
