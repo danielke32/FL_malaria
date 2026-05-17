@@ -5,6 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import json
+import matplotlib.patches as mpatches
+import matplotlib.lines as mlines
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 from scipy import stats
@@ -2855,6 +2857,417 @@ class TableGenerator:
         with open(latex_path, 'w', encoding='utf-8') as f:
             f.write(latex_str)
 
+# ============================================================================
+# SENSITIVITY ANALYSIS SECTION
+# Loads sensitivity_analysis.json and generates:
+#   - Figure S1: Grouped bar chart (native vs full AUC-PR per scenario/algo)
+#   - Table S1: Native vs Full feature set comparison (CSV + LaTeX)
+#   - Printed statistical summary (mean Δ, max Δ, per-row breakdown)
+# ============================================================================
+
+try:
+    _Config = Config          # type: ignore   (already defined in final_analysis.py)
+except NameError:
+    class _Config:            # minimal stand-alone fallback
+        RESULTS_DIR = Path(".") / "results"
+        FIGURES_DIR = Path(".") / "results" / "figures"
+        TABLES_DIR  = Path(".") / "results" / "tables"
+
+class SensitivityAnalysisSection:
+    """Generate figure and table from sensitivity_analysis.json.
+
+    Covers both AUC-PR (primary metric) and AUC-ROC (secondary metric).
+    """
+
+    SENSITIVITY_JSON = _Config.RESULTS_DIR / "sensitivity_analysis.json"
+
+    SCENARIO_LABELS = {
+        "s1_iid":     "S1: IID Baseline",
+        "s2_noniid":  "S2: Regional Heterogeneity",
+        "s3_quality": "S3: Quality Variation",
+    }
+
+    # Colour palette
+    _C_NATIVE = "#3d8fca"   # steel blue  — native-only bars
+    _C_FULL   = "#e07b39"   # burnt orange — full-feature bars
+    _C_REF_F  = "#c0392b"   # dark red     — centralized full reference
+    _C_REF_N  = "#2471a3"   # darker blue  — centralized native reference
+
+    # -----------------------------------------------------------------------
+    def __init__(self):
+        self.data = self._load()
+
+    def _load(self) -> Dict:
+        if not self.SENSITIVITY_JSON.exists():
+            raise FileNotFoundError(
+                f"sensitivity_analysis.json not found at {self.SENSITIVITY_JSON}.\n"
+                "Run sensitivity_analysis.py first."
+            )
+        with open(self.SENSITIVITY_JSON, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    # -----------------------------------------------------------------------
+    # Public entry point
+    # -----------------------------------------------------------------------
+    def run(self):
+        print("\n" + "=" * 70)
+        print("SENSITIVITY ANALYSIS: Native (6) vs Full (12) Features")
+        print("Metrics: AUC-PR (primary) and AUC-ROC (secondary)")
+        print("=" * 70)
+
+        self._print_summary()
+        self._generate_figure()
+        self._generate_table()
+
+    # -----------------------------------------------------------------------
+    # Console summary (both metrics)
+    # -----------------------------------------------------------------------
+    def _print_summary(self):
+        rows = self.data.get("summary_rows", [])
+        cent = self.data.get("centralized", {})
+
+        print(f"\n  Config: {self.data['config']['n_seeds']} seeds, "
+              f"{self.data['config']['n_rounds']} rounds, "
+              f"FedProx μ={self.data['config']['fedprox_mu']}")
+
+        # Centralized
+        print(f"\n  Centralized LR:")
+        print(f"    Native  — AUC-PR: {cent['native']['auc_pr']:.4f} | "
+              f"AUC-ROC: {cent['native']['auc_roc']:.4f}")
+        print(f"    Full    — AUC-PR: {cent['full']['auc_pr']:.4f} | "
+              f"AUC-ROC: {cent['full']['auc_roc']:.4f}")
+        print(f"    Δ AUC-PR : {cent['delta_auc_pr']:+.4f} | "
+              f"Δ AUC-ROC: {cent.get('delta_auc_roc', cent['full']['auc_roc'] - cent['native']['auc_roc']):+.4f}")
+
+        # Per-row — AUC-PR
+        print(f"\n  ── AUC-PR breakdown ──")
+        print(f"  {'Scenario':<28} {'Algo':<10} "
+              f"{'Native':>10} {'Full':>10} {'Δ':>8}")
+        print("  " + "-" * 60)
+        for r in rows:
+            lbl = self.SCENARIO_LABELS.get(r["scenario"], r["scenario"])
+            print(f"  {lbl:<28} {r['algorithm']:<10} "
+                  f"{r['native_auc_pr']:>10.4f} "
+                  f"{r['full_auc_pr']:>10.4f} "
+                  f"{r['delta_auc_pr']:>+8.4f}")
+
+        # Per-row — AUC-ROC
+        print(f"\n  ── AUC-ROC breakdown ──")
+        print(f"  {'Scenario':<28} {'Algo':<10} "
+              f"{'Native':>10} {'Full':>10} {'Δ':>8}")
+        print("  " + "-" * 60)
+        for r in rows:
+            lbl = self.SCENARIO_LABELS.get(r["scenario"], r["scenario"])
+            nat_roc = r.get("native_auc_roc", 0)
+            ful_roc = r.get("full_auc_roc", 0)
+            d_roc   = r.get("delta_auc_roc", ful_roc - nat_roc)
+            print(f"  {lbl:<28} {r['algorithm']:<10} "
+                  f"{nat_roc:>10.4f} "
+                  f"{ful_roc:>10.4f} "
+                  f"{d_roc:>+8.4f}")
+
+        # Aggregates
+        mean_pr  = self.data.get("mean_delta_auc_pr",  0)
+        max_pr   = self.data.get("max_delta_auc_pr",   0)
+        mean_roc = self.data.get("mean_delta_auc_roc", 0)
+        max_roc  = self.data.get("max_delta_auc_roc",  0)
+
+        print(f"\n  AUC-PR  — Mean Δ: {mean_pr:+.4f}  | Max Δ: {max_pr:+.4f}")
+        print(f"  AUC-ROC — Mean Δ: {mean_roc:+.4f}  | Max Δ: {max_roc:+.4f}")
+        print(f"\n  Interpretation: {self.data.get('interpretation', 'N/A')}")
+
+    # -----------------------------------------------------------------------
+    # Figure S1  — 2-row, 3-column grouped bar chart
+    #   Row 1: AUC-PR  (top)
+    #   Row 2: AUC-ROC (bottom)
+    # -----------------------------------------------------------------------
+    def _generate_figure(self):
+        rows = self.data.get("summary_rows", [])
+        cent = self.data.get("centralized", {})
+
+        scenarios  = ["s1_iid", "s2_noniid", "s3_quality"]
+        algorithms = ["FedAvg", "FedProx"]
+
+        # Build lookup: (scenario, algo) -> row dict
+        lookup: Dict[tuple, dict] = {}
+        for r in rows:
+            lookup[(r["scenario"], r["algorithm"])] = r
+
+        # Centralized reference values
+        cent_full_pr   = cent.get("full",   {}).get("auc_pr",  None)
+        cent_native_pr = cent.get("native", {}).get("auc_pr",  None)
+        cent_full_roc  = cent.get("full",   {}).get("auc_roc", None)
+        cent_native_roc = cent.get("native",{}).get("auc_roc", None)
+
+        # ── Layout: 2 rows × 3 cols ────────────────────────────────────────
+        fig, axes = plt.subplots(
+            2, 3,
+            figsize=(13, 9),
+            sharey="row",
+            gridspec_kw={"hspace": 0.38, "wspace": 0.06}
+        )
+
+        bar_width = 0.38
+        group_gap = 1.0
+        x = np.array([0.0, group_gap])
+
+        # ── Helper: draw one panel ─────────────────────────────────────────
+        def draw_panel(ax, scenario, metric_key, sd_key,
+                       cent_full_val, cent_native_val,
+                       ylim, row_idx, col_idx, ylabel):
+
+            native_means, native_sds = [], []
+            full_means,   full_sds   = [], []
+            deltas = []
+
+            for algo in algorithms:
+                r = lookup.get((scenario, algo), {})
+                nm = r.get(f"native_{metric_key}", 0)
+                ns = r.get(f"native_{sd_key}", 0)
+                fm = r.get(f"full_{metric_key}", 0)
+                fs = r.get(f"full_{sd_key}", 0)
+                native_means.append(nm); native_sds.append(ns)
+                full_means.append(fm);   full_sds.append(fs)
+                deltas.append(fm - nm)
+
+            # Native bars
+            ax.bar(
+                x - bar_width / 2, native_means, bar_width,
+                yerr=native_sds, capsize=5,
+                color=self._C_NATIVE, alpha=0.90,
+                error_kw={"elinewidth": 1.4, "ecolor": "#333", "capthick": 1.4},
+                zorder=3
+            )
+            # Full bars
+            bars_full = ax.bar(
+                x + bar_width / 2, full_means, bar_width,
+                yerr=full_sds, capsize=5,
+                color=self._C_FULL, alpha=0.90,
+                error_kw={"elinewidth": 1.4, "ecolor": "#333", "capthick": 1.4},
+                zorder=3
+            )
+
+            # Δ annotation inside the full bar
+            for bar, delta in zip(bars_full, deltas):
+                ypos = bar.get_height() - 0.055
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    ypos,
+                    f"Δ={delta:+.3f}",
+                    ha="center", va="top",
+                    fontsize=8.5, color="white", fontweight="bold",
+                    zorder=4
+                )
+
+            # Centralized reference lines (right panel only for readability)
+            if cent_full_val:
+                ax.axhline(cent_full_val, color=self._C_REF_F,
+                           linestyle=(0, (4, 3)), linewidth=1.5, zorder=2)
+                if col_idx == 2:
+                    ax.text(x[-1] + bar_width / 2 + 0.12,
+                            cent_full_val + 0.007,
+                            f"Cent. Full ({cent_full_val:.3f})",
+                            va="bottom", ha="left", fontsize=8, color=self._C_REF_F)
+
+            if cent_native_val:
+                ax.axhline(cent_native_val, color=self._C_REF_N,
+                           linestyle=(0, (2, 2)), linewidth=1.5, zorder=2)
+                if col_idx == 2:
+                    ax.text(x[-1] + bar_width / 2 + 0.12,
+                            cent_native_val - 0.018,
+                            f"Cent. Native ({cent_native_val:.3f})",
+                            va="top", ha="left", fontsize=8, color=self._C_REF_N)
+
+            # Axis decoration
+            ax.set_xticks(x)
+            ax.set_xticklabels(algorithms, fontsize=10.5)
+            ax.set_xlim(-0.58, x[-1] + 0.58)
+            ax.set_ylim(*ylim)
+            ax.tick_params(axis="x", length=0)
+            ax.grid(axis="y", alpha=0.35, linewidth=0.8, zorder=0)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+
+            if col_idx == 0:
+                ax.set_ylabel(ylabel, fontsize=12)
+            else:
+                ax.spines["left"].set_visible(False)
+                ax.tick_params(axis="y", left=False)
+
+            # Column title only on row 0
+            if row_idx == 0:
+                ax.set_title(
+                    self.SCENARIO_LABELS.get(scenario, scenario),
+                    fontsize=11, pad=7, fontweight="semibold"
+                )
+
+        # ── Draw all 6 panels ─────────────────────────────────────────────
+        for col_idx, scenario in enumerate(scenarios):
+            # Row 0: AUC-PR
+            draw_panel(
+                ax=axes[0, col_idx],
+                scenario=scenario,
+                metric_key="auc_pr",   sd_key="auc_pr_sd",
+                cent_full_val=cent_full_pr, cent_native_val=cent_native_pr,
+                ylim=(0.0, 1.07),
+                row_idx=0, col_idx=col_idx,
+                ylabel="AUC-PR"
+            )
+            # Row 1: AUC-ROC
+            draw_panel(
+                ax=axes[1, col_idx],
+                scenario=scenario,
+                metric_key="auc_roc",  sd_key="auc_roc_sd",
+                cent_full_val=cent_full_roc, cent_native_val=cent_native_roc,
+                ylim=(0.0, 1.07),
+                row_idx=1, col_idx=col_idx,
+                ylabel="AUC-ROC"
+            )
+
+        # Row labels on the far left
+        axes[0, 0].annotate(
+            "AUC-PR", xy=(-0.22, 0.5), xycoords="axes fraction",
+            fontsize=12, fontweight="bold", color="#333",
+            ha="center", va="center", rotation=90
+        )
+        axes[1, 0].annotate(
+            "AUC-ROC", xy=(-0.22, 0.5), xycoords="axes fraction",
+            fontsize=12, fontweight="bold", color="#333",
+            ha="center", va="center", rotation=90
+        )
+
+        # ── Shared legend ─────────────────────────────────────────────────
+        handles = [
+            mpatches.Patch(color=self._C_NATIVE, alpha=0.90,
+                           label="Native-only (6 DHS features)"),
+            mpatches.Patch(color=self._C_FULL, alpha=0.90,
+                           label="Full feature set (12 features)"),
+            mlines.Line2D([], [], color=self._C_REF_F,
+                          linestyle=(0, (4, 3)), linewidth=1.5,
+                          label="Centralized LR — full features"),
+            mlines.Line2D([], [], color=self._C_REF_N,
+                          linestyle=(0, (2, 2)), linewidth=1.5,
+                          label="Centralized LR — native only"),
+        ]
+        fig.legend(
+            handles=handles,
+            loc="lower center", ncol=4,
+            bbox_to_anchor=(0.5, -0.04),
+            fontsize=9.5, frameon=True, framealpha=0.9, edgecolor="#ccc"
+        )
+
+        # Figure title + subtitle
+        fig.suptitle(
+            "Sensitivity Analysis — Native (6) vs Full (12) Feature Set",
+            fontsize=13, fontweight="bold", y=1.005
+        )
+        fig.text(
+            0.5, 0.985,
+            ("AUC-PR (top) and AUC-ROC (bottom) — mean ± SD over 10 seeds (42–51).\n"
+             "Δ = gain from adding 6 synthetic symptom features."),
+            ha="center", va="top", fontsize=9.5, color="#444"
+        )
+
+        plt.tight_layout(rect=[0, 0.04, 1, 0.97])
+
+        out_path = _Config.FIGURES_DIR / "figure_s1_sensitivity_analysis.png"
+        fig.savefig(out_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"\n  ✓ Figure S1 saved: {out_path}")
+
+        # Also save print-ready B&W version
+        self._save_bw(out_path)
+
+    # -----------------------------------------------------------------------
+    # B&W print version
+    # -----------------------------------------------------------------------
+    def _save_bw(self, color_png: Path):
+        try:
+            from PIL import Image
+            print_dir = _Config.FIGURES_DIR / "print_bw"
+            print_dir.mkdir(parents=True, exist_ok=True)
+
+            img = Image.open(color_png).convert("L").convert("RGB")
+            stem = color_png.stem
+            img.save(print_dir / f"{stem}_print_bw.png",  "PNG",  dpi=(300, 300))
+            img.save(print_dir / f"{stem}_print_bw.tiff", "TIFF", dpi=(300, 300),
+                     compression="tiff_lzw")
+            print(f"  ✓ B&W print version saved: {print_dir / stem}_print_bw.*")
+        except ImportError:
+            print("  ⚠ Pillow not installed — skipping B&W print version.")
+
+    # -----------------------------------------------------------------------
+    # Table S1 — CSV + LaTeX  (AUC-PR and AUC-ROC columns)
+    # -----------------------------------------------------------------------
+    def _generate_table(self):
+        rows = self.data.get("summary_rows", [])
+        cent = self.data.get("centralized", {})
+
+        table_rows = []
+
+        # Centralized row
+        cent_delta_roc = cent.get(
+            "delta_auc_roc",
+            cent["full"]["auc_roc"] - cent["native"]["auc_roc"]
+        )
+        table_rows.append({
+            "Scenario":        "Centralized LR",
+            "Algorithm":       "—",
+            # AUC-PR columns
+            "Native AUC-PR":   f"{cent['native']['auc_pr']:.4f}",
+            "Native PR SD":    "—",
+            "Full AUC-PR":     f"{cent['full']['auc_pr']:.4f}",
+            "Full PR SD":      "—",
+            "Δ AUC-PR":        f"{cent['delta_auc_pr']:+.4f}",
+            # AUC-ROC columns
+            "Native AUC-ROC":  f"{cent['native']['auc_roc']:.4f}",
+            "Native ROC SD":   "—",
+            "Full AUC-ROC":    f"{cent['full']['auc_roc']:.4f}",
+            "Full ROC SD":     "—",
+            "Δ AUC-ROC":       f"{cent_delta_roc:+.4f}",
+        })
+
+        for r in rows:
+            nat_roc = r.get("native_auc_roc", 0)
+            ful_roc = r.get("full_auc_roc",   0)
+            d_roc   = r.get("delta_auc_roc", ful_roc - nat_roc)
+            nat_roc_sd = r.get("native_auc_roc_sd", 0)
+            ful_roc_sd = r.get("full_auc_roc_sd",   0)
+
+            table_rows.append({
+                "Scenario":        self.SCENARIO_LABELS.get(r["scenario"], r["scenario"]),
+                "Algorithm":       r["algorithm"],
+                # AUC-PR
+                "Native AUC-PR":   f"{r['native_auc_pr']:.4f}",
+                "Native PR SD":    f"±{r.get('native_auc_pr_sd', 0):.4f}",
+                "Full AUC-PR":     f"{r['full_auc_pr']:.4f}",
+                "Full PR SD":      f"±{r.get('full_auc_pr_sd', 0):.4f}",
+                "Δ AUC-PR":        f"{r['delta_auc_pr']:+.4f}",
+                # AUC-ROC
+                "Native AUC-ROC":  f"{nat_roc:.4f}",
+                "Native ROC SD":   f"±{nat_roc_sd:.4f}",
+                "Full AUC-ROC":    f"{ful_roc:.4f}",
+                "Full ROC SD":     f"±{ful_roc_sd:.4f}",
+                "Δ AUC-ROC":       f"{d_roc:+.4f}",
+            })
+
+        df = pd.DataFrame(table_rows)
+
+        # CSV
+        csv_path = _Config.TABLES_DIR / "table_s1_sensitivity_analysis.csv"
+        df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+
+        # LaTeX
+        latex_path = _Config.TABLES_DIR / "table_s1_sensitivity_analysis.tex"
+        col_fmt = "ll" + "r" * (len(df.columns) - 2)
+        with open(latex_path, "w", encoding="utf-8") as f:
+            f.write(df.to_latex(index=False, escape=True, column_format=col_fmt))
+
+        print(f"  ✓ Table S1 (CSV)   saved: {csv_path}")
+        print(f"  ✓ Table S1 (LaTeX) saved: {latex_path}")
+        print(f"\n  Table S1 preview:")
+        print(df.to_string(index=False))
+
 def print_key_findings_summary(results: Dict, stats_results: Dict):
     """Print key findings summary for thesis."""
     
@@ -3014,6 +3427,23 @@ def main():
     
     # Print key findings summary
     print_key_findings_summary(results, stats_results)
+
+    # -----------------------------------------------------------------------
+    # Sensitivity analysis (native vs full feature set)
+    # -----------------------------------------------------------------------
+    sensitivity_json = Config.RESULTS_DIR / "sensitivity_analysis.json"
+    if sensitivity_json.exists():
+        print("\n" + "="*70)
+        print("RUNNING SENSITIVITY ANALYSIS SECTION")
+        print("="*70)
+        try:
+            sens = SensitivityAnalysisSection()
+            sens.run()
+        except Exception as e:
+            print(f"  ⚠ Sensitivity analysis section failed: {e}")
+    else:
+        print(f"\n  ⚠ sensitivity_analysis.json not found at {sensitivity_json}")
+        print("    Run sensitivity_analysis.py first, then re-run final_analysis.py.")
 
     print("\n" + "="*70)
     print(" All outputs generated successfully!")
