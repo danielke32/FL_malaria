@@ -405,7 +405,6 @@ If you use this code in your research, please cite:
 
 - **DHS Program** for providing access to Ghana survey data
 - **WHO** and malaria literature for clinical symptom parameters
-- Federated learning framework inspired by [Flower](https://flower.dev/)
 
 ## License
 
