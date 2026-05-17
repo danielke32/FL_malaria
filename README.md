@@ -3,7 +3,7 @@
 **Multi-Scenario Evaluation Using Ghana DHS Data**
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch 2.9](https://img.shields.io/badge/PyTorch-2.9+-red.svg)](https://pytorch.org/)
+[![PyTorch 2.0+](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Overview
@@ -16,7 +16,7 @@ The project evaluates federated learning algorithms (FedAvg and FedProx) against
 
 - **Privacy-preserving**: Federated learning enables collaborative model training without sharing raw patient data
 - **Multi-scenario evaluation**: IID, Non-IID (regional heterogeneity), and data quality variation scenarios
-- **Comprehensive comparison**: FedAvg, FedProx vs. Centralized Logistic Regression and Random Forest
+- **Comprehensive comparison**: FedAvg, FedProx vs. centralized Logistic Regression and Random Forest
 - **Reproducible research**: Fixed seeds, documented preprocessing, and complete pipeline automation
 - **Publication-ready outputs**: Statistical analysis, figures, and tables generation
 
@@ -25,13 +25,13 @@ The project evaluates federated learning algorithms (FedAvg and FedProx) against
 ```
 FL_malaria/
 ├── data/
-│   ├── raw/                    # DHS/MIS Stata files (not included - see Data Access)
+│   ├── raw/                    # DHS/MIS Stata files (not included — see Data Access)
 │   ├── merged/                 # Merged survey data
 │   ├── cleaned/                # Preprocessed datasets
-│   │   ├── train_raw.csv       # Raw training data for FL scenarios
+│   │   ├── train_raw.csv          # Raw training data for FL scenarios
 │   │   ├── train_centralized.csv  # SMOTE-augmented centralized training
-│   │   ├── val_set.csv         # Validation set (real data)
-│   │   └── test_set.csv        # Test set (real data)
+│   │   ├── val_set.csv            # Validation set (real data)
+│   │   └── test_set.csv           # Test set (real data)
 │   └── fl_scenarios/           # Federated learning client data
 │       ├── s1_iid/             # Scenario 1: IID distribution
 │       ├── s2_noniid/          # Scenario 2: Regional heterogeneity
@@ -41,8 +41,9 @@ FL_malaria/
 │   ├── centralized_results.json
 │   ├── results_baseline.json
 │   ├── results_grid_search.json
-│   ├── figures/                # Publication-ready figures
-│   └── tables/                 # LaTeX/CSV tables
+│   ├── comprehensive_statistical_analysis.json
+│   ├── figures/                # Publication-ready figures (PNG + greyscale)
+│   └── tables/                 # LaTeX and CSV tables
 ├── logs/                       # Pipeline execution logs
 ├── models/                     # Saved model checkpoints
 ├── validation/                 # Preprocessing validation reports
@@ -51,14 +52,15 @@ FL_malaria/
 │   ├── data/
 │   │   ├── data_extraction.py      # Stage 1: DHS/MIS data extraction
 │   │   ├── data_preprocessing.py   # Stage 2: MICE imputation & feature engineering
-│   │   └── create_fl_scenarios.py  # Stage 3a: FL scenario creation
+│   │   └── create_fl_scenarios.py  # Stage 3: FL scenario creation
 │   ├── training/
-│   │   ├── train_centralized.py    # Stage 3b: Centralized baseline training
-│   │   └── train_federated.py      # Stage 3c: Federated model training
+│   │   ├── train_centralized.py    # Stage 4: Centralized baseline training
+│   │   └── train_federated.py      # Stage 5: Federated model training
 │   ├── evaluation/
-│   │   └── final_analysis_update.py  # Stage 4: Statistical analysis & visualization
+│   │   ├── final_analysis.py       # Stage 6: Statistical analysis & visualization
+│   │   └── sensitivity_analysis.py # Robustness check: native vs. full feature set
 │   └── pipeline/
-│       └── run_complete_pipeline.py  # Orchestrates complete workflow
+│       └── run_complete_pipeline.py  # Orchestrates the complete workflow
 │
 ├── requirements.txt
 └── README.md
@@ -80,13 +82,13 @@ FL_malaria/
    cd FL_malaria
    ```
 
-2. **Create virtual environment**
+2. **Create a virtual environment**
    ```bash
    python -m venv federated_ml
-   
+
    # Linux/macOS
    source federated_ml/bin/activate
-   
+
    # Windows
    federated_ml\Scripts\activate
    ```
@@ -99,25 +101,16 @@ FL_malaria/
 ### Requirements
 
 ```
-# Core dependencies
 pandas>=1.5.0
 numpy>=1.23.0
 scipy>=1.9.0
-
-# Machine Learning
 scikit-learn>=1.1.0
 imbalanced-learn>=0.10.0
 torch>=2.0.0
-
-# Statistical Analysis
 statsmodels>=0.13.0
-
-# Visualization
 matplotlib>=3.6.0
 seaborn>=0.12.0
-
-# Data Processing
-pyreadstat>=1.2.0  # For reading Stata files
+Pillow>=9.0.0
 ```
 
 ## Data Access
@@ -127,15 +120,12 @@ pyreadstat>=1.2.0  # For reading Stata files
 This project uses Ghana Demographic and Health Survey (DHS) and Malaria Indicator Survey (MIS) data, which requires registration to access:
 
 1. **Register** at [DHS Program](https://dhsprogram.com/data/new-user-registration.cfm)
-2. **Request access** to Ghana datasets:
-   - MIS 2016: GHPR7BFL.DTA, GHKR7BFL.DTA
-   - MIS 2019: GHPR82FL.DTA, GHKR82FL.DTA
-   - DHS 2022: GHPR8CFL.DTA, GHKR8CFL.DTA
-3. **Place files** in `data/raw/` directory
+2. **Request access** to the Ghana datasets listed below
+3. **Place files** in `data/raw/`
 
 ### File Naming Convention
 
-| Survey | PR File (Household) | KR File (Children) |
+| Survey | PR file (household) | KR file (children) |
 |--------|---------------------|-------------------|
 | MIS 2016 | GHPR7BFL.DTA | GHKR7BFL.DTA |
 | MIS 2019 | GHPR82FL.DTA | GHKR82FL.DTA |
@@ -143,7 +133,7 @@ This project uses Ghana Demographic and Health Survey (DHS) and Malaria Indicato
 
 ### Dataset Characteristics
 
-| Survey | Children (6-59 mo) | RDT Positive | Urban | Rainy Season |
+| Survey | Children (6–59 mo) | RDT positive | Urban | Rainy season |
 |--------|-------------------|--------------|-------|--------------|
 | MIS 2016 | 2,892 | 27.8% | 42.1% | 58.2% |
 | MIS 2019 | 3,245 | 21.4% | 44.3% | 61.4% |
@@ -155,16 +145,19 @@ This project uses Ghana Demographic and Health Survey (DHS) and Malaria Indicato
 ### Quick Start: Run Complete Pipeline
 
 ```bash
-# Full pipeline with baseline experiments
+# Full pipeline — baseline experiment (default)
 python src/pipeline/run_complete_pipeline.py
 
 # With grid search hyperparameter tuning
 python src/pipeline/run_complete_pipeline.py --experiment grid_search
 
-# Skip data extraction (if already done)
+# Ablation study (μ values only)
+python src/pipeline/run_complete_pipeline.py --experiment ablation
+
+# Skip Stage 1 if data is already extracted
 python src/pipeline/run_complete_pipeline.py --skip-extraction
 
-# Run specific stages only
+# Run specific stages (e.g. training + analysis only)
 python src/pipeline/run_complete_pipeline.py --stages 4,5,6
 ```
 
@@ -174,7 +167,7 @@ python src/pipeline/run_complete_pipeline.py --stages 4,5,6
 ```bash
 python src/data/data_extraction.py
 ```
-Extracts and merges Ghana DHS/MIS malaria survey data from Stata files.
+Extracts and merges Ghana DHS/MIS malaria survey data from Stata files using `pandas.read_stata`.
 
 **Outputs:**
 - `data/merged/ghana_malaria_merged.csv`
@@ -185,31 +178,33 @@ Extracts and merges Ghana DHS/MIS malaria survey data from Stata files.
 ```bash
 python src/data/data_preprocessing.py
 ```
-Applies MICE imputation, simulates clinical symptoms, and creates train/val/test splits.
+Applies MICE imputation, simulates clinical symptoms from the literature, and creates stratified train/val/test splits.
 
-**Key Features:**
-- Multiple Imputation by Chained Equations (MICE) for missing data
+**Key steps:**
+- Multiple Imputation by Chained Equations (MICE) with 5 imputations, averaged
 - Literature-based symptom simulation (chills, sweating, headache, etc.)
-- SMOTE for class balancing (35% positive target)
-- Stratified 60/20/20 split
+- Stratified 60/20/20 split (train / val / test)
+- SMOTE applied to the centralized training set only: 7,200 total samples at 35% positive class target
 
 **Outputs:**
-- `data/cleaned/train_raw.csv` - For FL scenario creation
-- `data/cleaned/train_centralized.csv` - SMOTE-augmented (7,200 samples)
-- `data/cleaned/val_set.csv` - Validation set
-- `data/cleaned/test_set.csv` - Test set
+- `data/cleaned/train_raw.csv` — raw training split for FL scenario creation
+- `data/cleaned/train_centralized.csv` — SMOTE-augmented training set (7,200 samples)
+- `data/cleaned/val_set.csv` — validation set (real data, no oversampling)
+- `data/cleaned/test_set.csv` — test set (real data, no oversampling)
 
-#### Stage 3a: FL Scenario Creation
+#### Stage 3: FL Scenario Creation
 ```bash
 python src/data/create_fl_scenarios.py
 ```
-Creates three federated learning scenarios with 5 clients each.
+Creates three federated learning scenarios across 5 clients (mapped to Ghana regions).
 
-| Scenario | Description | Characteristics |
-|----------|-------------|-----------------|
-| S1 (IID) | Random equal split | Balanced clients, ~20% each |
-| S2 (Non-IID) | Regional heterogeneity | Unequal sizes, varying prevalence |
-| S3 (Quality) | S2 + missing data | 5-20% missing values per client |
+| Scenario | Description | Missingness |
+|----------|-------------|-------------|
+| S1 (IID) | Random equal split across clients | None |
+| S2 (Non-IID) | Regional assignment — unequal sizes and varying prevalence | None |
+| S3 (Quality) | Same as S2 with injected missing values per client | 5–20% per client |
+
+S3 missing rates by client: Greater Accra 5%, Ashanti 10%, Northern 20%, Upper East 15%, Western 12%.
 
 **Outputs:**
 - `data/fl_scenarios/s1_iid/client_{0-4}.csv`
@@ -217,85 +212,116 @@ Creates three federated learning scenarios with 5 clients each.
 - `data/fl_scenarios/s3_quality/client_{0-4}.csv`
 - `data/fl_scenarios/heterogeneity_metrics.json`
 
-#### Stage 3b: Centralized Training
+#### Stage 4: Centralized Training
 ```bash
 python src/training/train_centralized.py
 ```
-Trains baseline models with GridSearchCV hyperparameter tuning.
+Trains baseline models using `GridSearchCV` with 5-fold stratified cross-validation.
 
 **Models:**
 - Logistic Regression (class-balanced)
 - Random Forest (class-balanced)
 
-**Primary Metric:** AUC-PR (Average Precision) for imbalanced data
+**Primary metric:** AUC-PR (Average Precision) — appropriate for the class-imbalanced setting.
 
 **Outputs:**
 - `results/centralized_results.json`
 
-#### Stage 3c: Federated Training
+#### Stage 5: Federated Training
 ```bash
-# Baseline experiments (10 seeds)
+# Baseline experiment (default)
 python src/training/train_federated.py --experiment baseline
 
 # Full grid search
 python src/training/train_federated.py --experiment grid_search
 
-# Ablation study (mu values only)
+# Ablation study (μ values only)
 python src/training/train_federated.py --experiment ablation
 ```
 
 **Algorithms:**
-- **FedAvg**: Standard federated averaging (μ=0)
-- **FedProx**: Proximal term regularization (μ ∈ {0.01, 0.1, 0.5, 1.0})
+- **FedAvg**: standard federated averaging (μ = 0)
+- **FedProx**: proximal-term regularization (μ ∈ {0.01, 0.1, 0.5, 1.0})
 
 **Configuration:**
 - 10 communication rounds
 - 5 clients per scenario
-- Local SMOTE balancing (35% positive)
+- Batch size: 32
+- Local SMOTE balancing: 35% positive target
 - Decision threshold: 0.35
 
 **Outputs:**
 - `results/results_baseline.json`
-- `results/results_grid_search.json`
+- `results/results_grid_search.json` (grid search only)
+- `results/results_ablation.json` (ablation only)
 
-#### Stage 4: Final Analysis
+#### Stage 6: Final Analysis
 ```bash
-python src/evaluation/final_analysis_update.py
+python src/evaluation/final_analysis.py
 ```
 Generates comprehensive statistical analysis and publication-ready visualizations.
 
+**Figures produced** (PNG + greyscale copy for print):
+- `figure_1_performance_comparison`
+- `figure_2_roc_pr_curves`
+- `figure_3_metric_distributions`
+- `figure_4_confusion_matrices`
+- `figure_5_convergence_analysis`
+- `figure_6_ablation_study`
+- `figure_7_statistical_summary`
+- `figure_8_radar_comparison`
+- `figure_9_error_analysis`
+
+**Tables produced** (CSV + LaTeX):
+- `table_1_performance_metrics`
+- `table_2_statistical_tests`
+- `table_3_centralized_comparison`
+- `table_4_ablation_results`
+- `table_5_comprehensive_stats`
+
 **Outputs:**
 - `results/comprehensive_statistical_analysis.json`
-- `results/figures/` - ROC curves, PR curves, convergence plots, etc.
-- `results/tables/` - LaTeX tables for thesis
+- `results/figures/` — all figures at 300 DPI
+- `results/tables/` — CSV and `.tex` files
+
+#### Sensitivity Analysis (optional)
+```bash
+python src/evaluation/sensitivity_analysis.py
+```
+Robustness check that re-runs all three FL scenarios and the centralized baseline using only the 6 native DHS features (no synthetically simulated symptoms), then compares AUC-PR and AUC-ROC against the full 12-feature results. A small performance drop confirms that synthetic features do not carry inflated outcome signal.
+
+- **Native features (6):** `fever`, `diarrhea`, `bednet_use`, `recent_travel`, `season`, `age_group`
+- **Synthetic features (6):** `chills`, `sweating`, `headache`, `bodyaches`, `nausea_vomiting`, `appetite_loss`
+
+**Output:** `results/sensitivity_analysis.json`
 
 ## Experiment Configurations
 
-### Baseline Experiment
+### Baseline
 ```python
-mu_values = [0.0, 0.1]
+mu_values      = [0.0, 0.1]
 learning_rates = [0.05]
-local_epochs = [10]
-n_seeds = 10
+local_epochs   = [10]
+n_seeds        = 10
 ```
 
-### Grid Search Experiment
+### Grid Search
 ```python
-mu_values = [0.0, 0.01, 0.1, 0.5, 1.0]
+mu_values      = [0.0, 0.01, 0.1, 0.5, 1.0]
 learning_rates = [0.01, 0.05]
-local_epochs = [5, 10, 15]
-n_seeds = 10
+local_epochs   = [5, 10, 15]
+n_seeds        = 10
 ```
 
 ### Ablation Study
 ```python
-mu_values = [0.0, 0.01, 0.1, 0.5, 1.0]
+mu_values      = [0.0, 0.01, 0.1, 0.5, 1.0]
 learning_rates = [0.05]
-local_epochs = [10]
-n_seeds = 10
+local_epochs   = [10]
+n_seeds        = 10
 ```
 
-## Features Used
+## Features
 
 The model uses 12 features for malaria prediction:
 
@@ -305,14 +331,14 @@ The model uses 12 features for malaria prediction:
 | `diarrhea` | Binary | Recent diarrhea (from DHS) |
 | `chills` | Binary | Simulated based on literature |
 | `sweating` | Binary | Simulated based on literature |
-| `headache` | Ordinal (0-3) | Simulated severity scale |
-| `bodyaches` | Ordinal (0-3) | Simulated severity scale |
+| `headache` | Ordinal (0–3) | Simulated severity scale |
+| `bodyaches` | Ordinal (0–3) | Simulated severity scale |
 | `nausea_vomiting` | Binary | Simulated based on literature |
 | `appetite_loss` | Binary | Simulated based on literature |
 | `bednet_use` | Binary | ITN/LLIN usage |
 | `recent_travel` | Binary | Travel to endemic areas |
-| `season` | Binary | Rainy (1) vs Dry (0) |
-| `age_group` | Ordinal (0-5) | Age category (<6 to <60 months) |
+| `season` | Binary | Rainy (1) vs. dry (0) |
+| `age_group` | Ordinal (0–5) | Age category (<6 to <60 months) |
 
 ## Reproducibility
 
@@ -332,32 +358,33 @@ def set_all_seeds(seed: int):
 ```
 
 ### Multiple Seeds for Statistical Validity
-- 10 independent runs per configuration
+- 10 independent runs per configuration (seeds 42–51)
 - Results reported as mean ± standard deviation
-- Statistical tests (paired t-tests, Tukey HSD) for significance
+- Statistical tests: paired t-tests and Tukey HSD for significance
 
 ## Results Summary
 
 ### Primary Findings
 
 1. **FedProx outperforms FedAvg** in heterogeneous scenarios (S2, S3)
-2. **Optimal μ=0.5** for FedProx in non-IID settings
+2. **Optimal μ = 0.5** for FedProx in non-IID settings
 3. **Federated models achieve comparable performance** to centralized baselines
-4. **AUC-PR** is the appropriate metric for imbalanced malaria data
+4. **AUC-PR** is the most appropriate metric for the class-imbalanced malaria prediction task
 
 ### Key Metrics
 
 | Model | Scenario | AUC-PR | AUC-ROC | F1 Score |
 |-------|----------|--------|---------|----------|
-| FedAvg | S1 (IID) | 0.XX±0.XX | 0.XX±0.XX | 0.XX±0.XX |
-| FedProx | S1 (IID) | 0.XX±0.XX | 0.XX±0.XX | 0.XX±0.XX |
-| FedAvg | S2 (Non-IID) | 0.XX±0.XX | 0.XX±0.XX | 0.XX±0.XX |
-| FedProx | S2 (Non-IID) | 0.XX±0.XX | 0.XX±0.XX | 0.XX±0.XX |
-| FedAvg | S3 (Data Quality) | 0.XX±0.XX | 0.XX±0.XX | 0.XX±0.XX |
-| FedProx | S3 (Data Quality) | 0.XX±0.XX | 0.XX±0.XX | 0.XX±0.XX |
-| Centralized LR | - | 0.XX | 0.XX | 0.XX |
+| FedAvg | S1 (IID) | — | — | — |
+| FedProx | S1 (IID) | — | — | — |
+| FedAvg | S2 (Non-IID) | — | — | — |
+| FedProx | S2 (Non-IID) | — | — | — |
+| FedAvg | S3 (Data Quality) | — | — | — |
+| FedProx | S3 (Data Quality) | — | — | — |
+| Centralized LR | — | — | — | — |
+| Centralized RF | — | — | — | — |
 
-*(Results will be populated after running experiments)*
+*(Populate after running experiments)*
 
 ## Citation
 
@@ -365,7 +392,7 @@ If you use this code in your research, please cite:
 
 ```bibtex
 @mastersthesis{kovor2025federated,
-  title={Federated Learning for Privacy-Preserving Malaria Prediction: 
+  title={Federated Learning for Privacy-Preserving Malaria Prediction:
          Multi-Scenario Evaluation Using Ghana DHS Data},
   author={Kovor, Kwasi Daniel},
   year={2025},
@@ -382,11 +409,10 @@ If you use this code in your research, please cite:
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
 ## Contact
 
-For questions or collaboration:
 - **Author**: Daniel Kwasi Kovor
 - **Email**: dkkovor@st.knust.edu.gh / danielke32@gmail.com
 - **Institution**: Kwame Nkrumah University of Science and Technology
